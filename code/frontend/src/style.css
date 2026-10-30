@@ -1,0 +1,13 @@
+:root { font-family: system-ui, sans-serif; color: #172033; background: #f3f6fb; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+.card { width: min(100% - 2rem, 38rem); padding: 2rem; background: white; border-radius: 1rem; box-shadow: 0 10px 30px #17203314; }
+h1 { margin-top: 0; }
+label { display: block; margin-bottom: .5rem; font-weight: 600; }
+.input-row { display: flex; gap: .5rem; }
+input { flex: 1; min-width: 0; padding: .7rem; border: 1px solid #aeb9ca; border-radius: .4rem; font: inherit; }
+button { padding: .7rem 1rem; border: 0; border-radius: .4rem; background: #2456c3; color: white; font: inherit; cursor: pointer; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+ul { padding-left: 1.4rem; line-height: 1.8; overflow-wrap: anywhere; }
+.error { color: #a11919; }
+@media (max-width: 30rem) { .input-row { flex-direction: column; } }
