@@ -1,0 +1,52 @@
+name: CI - Dev
+
+# definisce il webhook listener. definisce a che eventi git reagire.
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'todolistservice/**'
+      # ogni cambiamento nella CI devi ritriggerare la sua esecuzione. 
+      - '.github/workflows/ci-dev.yaml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'todolistservice/**'
+      - '.github/workflows/ci-dev.yaml'
+
+jobs:
+  build-and-verify:
+    name: Build & Verify TodoList Service
+    # girerà su una VM di github. anche un runner self-hosted può essere usato. 
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+       # si mette la working directory come nel servizio attuale in modo da evitare 
+       # di usare cd.. 
+        working-directory: ./todolistservice
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27' 
+          cache: true
+          # si va a calcolare l'hash del file e se lo salva in modo che se non viene modificato
+          # per le prossime esecuzioni posso riusare quelle dipendenze che avevo scaricato all'inizio. 
+          # le VM sono effimere, quello che succede è che le dipendenze vengono salvate in uno storage 
+          # e la prossima esecuzione della vm contatterà lo storage e si prende quel file. 
+          cache-dependency-path: './todolistservice/go.sum'
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: Verify Module Integrity
+        run: go mod verify
+
+      - name: Build Service
+        run: go build -v ./...
