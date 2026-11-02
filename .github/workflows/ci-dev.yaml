@@ -4,21 +4,23 @@ name: CI - Dev
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - 'todolistservice/**'
       # ogni cambiamento nella CI devi ritriggerare la sua esecuzione. 
       - '.github/workflows/ci-dev.yaml'
   pull_request:
     branches:
-      - master
+      - main
     paths:
       - 'todolistservice/**'
       - '.github/workflows/ci-dev.yaml'
 
 jobs:
-  build-and-verify:
+  verify:
     name: Build & Verify TodoList Service
+    permissions:
+      contents: read
     # girerà su una VM di github. anche un runner self-hosted può essere usato. 
     runs-on: ubuntu-latest
     defaults:
@@ -30,6 +32,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go Environment
         uses: actions/setup-go@v5
@@ -50,3 +54,104 @@ jobs:
 
       - name: Build Service
         run: go build -v ./...
+
+      - name: Test Service
+        run: go test ./...
+      
+      # buildx permette di abilitare il caching 
+      - name: Set up Docker Buildx
+        # Questo è il motore di build avanzato. Necessario per cache distribuita, SBOM e multi-arch
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify Docker Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./todolistservice
+          push: false
+          cache-from: type=gha,scope=todolistservice
+          cache-to: type=gha,mode=max,scope=todolistservice
+
+  release:
+    name: Release TodoList Service
+    if: github.event_name == 'push'
+    needs: verify
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    # le verifiche possono girare in parallelo, ma una sola release alla volta può creare tag e pubblicare immagini.
+    concurrency:
+      group: release-todolistservice-main
+      cancel-in-progress: false
+      queue: max
+    defaults:
+      run:
+        working-directory: ./todolistservice
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Current Main
+        id: current
+        run: |
+          git fetch --no-tags origin main
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'todolistservice-v*' | sort -V | tail -n 1)
+          if [ -n "$tag" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_SHA" = "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # la semantic release permette di incrementare in modo semplice le versioni. tramite il plugin monorepo
+      # permette di farlo anche in una monorepo andando a controllare solo i moduli che sono stati modificati. 
+      - name: Semantic Release (Versioning Indipendente)
+        if: steps.current.outputs.release == 'true'
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v8
+        with:
+          working_directory: ./todolistservice
+          # In un monorepo, questo plugin è vitale per analizzare solo i commit di questa directory
+          extra_plugins: |
+            semantic-release-monorepo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve Release Version
+        if: steps.current.outputs.publish == 'true'
+        id: release_tag
+        run: |
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'todolistservice-v*' | sort -V | tail -n 1)
+          if [ -n "$tag" ]; then
+            echo "version=${tag#todolistservice-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build, Push and Generate SBOM
+        if: steps.release_tag.outputs.version != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: ./todolistservice
+          push: true
+          # Taggiamo con la versione calcolata da Semantic Release e con il commit SHA per immutabilità
+          tags: |
+            docker.io/${{ vars.DOCKERHUB_USERNAME }}/todolistservice:${{ steps.release_tag.outputs.version }}
+            docker.io/${{ vars.DOCKERHUB_USERNAME }}/todolistservice:${{ github.sha }}
+          cache-from: type=gha,scope=todolistservice
+          cache-to: type=gha,mode=max,scope=todolistservice
+          # genera il SBOM
+          sbom: true
+          provenance: mode=max

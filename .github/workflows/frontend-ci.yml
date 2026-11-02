@@ -3,20 +3,22 @@ name: CI - Frontend
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
   pull_request:
     branches:
-      - master
+      - main
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
 
 jobs:
-  build-and-verify:
+  verify:
     name: Build & Verify Frontend
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,6 +27,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node Environment
         uses: actions/setup-node@v4
@@ -38,3 +42,93 @@ jobs:
 
       - name: Build Frontend
         run: npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify Docker Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          cache-from: type=gha,scope=todolist-frontend
+          cache-to: type=gha,mode=max,scope=todolist-frontend
+
+  release:
+    name: Release Frontend
+    if: github.event_name == 'push'
+    needs: verify
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-todolist-frontend-main
+      cancel-in-progress: false
+      queue: max
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Current Main
+        id: current
+        run: |
+          git fetch --no-tags origin main
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'todolist-frontend-v*' | sort -V | tail -n 1)
+          if [ -n "$tag" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_SHA" = "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Semantic Release (Versioning Indipendente)
+        if: steps.current.outputs.release == 'true'
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v8
+        with:
+          working_directory: ./frontend
+          extra_plugins: |
+            semantic-release-monorepo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve Release Version
+        if: steps.current.outputs.publish == 'true'
+        id: release_tag
+        run: |
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'todolist-frontend-v*' | sort -V | tail -n 1)
+          if [ -n "$tag" ]; then
+            echo "version=${tag#todolist-frontend-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build, Push and Generate SBOM
+        if: steps.release_tag.outputs.version != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            docker.io/${{ vars.DOCKERHUB_USERNAME }}/todolist-frontend:${{ steps.release_tag.outputs.version }}
+            docker.io/${{ vars.DOCKERHUB_USERNAME }}/todolist-frontend:${{ github.sha }}
+          cache-from: type=gha,scope=todolist-frontend
+          cache-to: type=gha,mode=max,scope=todolist-frontend
+          sbom: true
+          provenance: mode=max
