@@ -7,6 +7,7 @@
 * bisogna cachare le dipendenze usando l'hash dei file con le dipendenze. 
 * l'approccio standard è avere un unico branch main e creare branch effimeri per le varie feature e basta.
 * è più sicuro che gli step della pipeline di build e test abbiano solo i permessi di lettura e quello che deve fare il push dell'immagine solo quelli di scrittura. conviene fare 2 job (verify e release).
+* avendo due job separati dopo che viene accettata la PR viene eseguito il job che fa la release delle immagini su dockerhub. 
 * conviene proteggere il branch main per impedire che si possa fare un push diretto.  Settings → Rules → Rulesets → New ruleset → New branch ruleset. selezionando main come target e impostandolo ad Active. 
 - Require a pull request before merging: impedisce il normale push diretto su main.
 - Require status checks to pass: seleziona i due controlli finali Backend CI e Frontend CI, con GitHub Actions come origine.
@@ -15,6 +16,7 @@
 - Require branches to be up to date before merging: consigliabile, ma comporta una nuova esecuzione della CI quando main avanza.
 * un'altra pratica da seguire è impostare il controllo di sicurezza sulle dipendenze. 
 * mi devo creare un token su docker hub e inserire il mio username come variabile e il token come secret su github. 
+* quando uso la semantic-release se non specifico la sintassi non mi crea la versione e quindi non mi pubblica neinte. 
 
 Una best practice è quella vi avere pipeline separate per ogni servizio perchè averne una unica per tutti ha dei difetti: 
 * la release è globale: se uno dei servizi fallisce allora non viene rilasciato niente, anche se gli altri servizi sono perfettamente a posto. Invece, ogni servizio dovrebbe essere deployabile indipendentemente. 

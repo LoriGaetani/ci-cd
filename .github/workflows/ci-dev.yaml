@@ -68,6 +68,7 @@ jobs:
         with:
           context: ./todolistservice
           push: false
+          outputs: type=cacheonly
           cache-from: type=gha,scope=todolistservice
           cache-to: type=gha,mode=max,scope=todolistservice
 
