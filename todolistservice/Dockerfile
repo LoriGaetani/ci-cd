@@ -11,3 +11,4 @@ COPY --from=build /todolistservice /todolistservice
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/todolistservice"]
+
